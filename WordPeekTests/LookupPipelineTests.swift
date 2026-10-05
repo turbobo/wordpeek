@@ -152,4 +152,27 @@ final class LookupPipelineTests: XCTestCase {
         pipeline.ingest(text: "我吃咖啡饭") // 中间插入"咖啡"
         XCTAssertEqual(results.first?.rangeUTF16, NSRange(location: 2, length: 2))
     }
+
+    func testTestFieldBaselineSurvivesExternalReset() {
+        // 回归：外部焦点切换触发的 reset 不得清掉试打区基线（修复前第一个词不展示）
+        let (pipeline, _) = makePipeline()
+        var results: [LookupResult] = []
+        pipeline.onLookup = { results.append($0) }
+
+        pipeline.prime(text: "", source: .testField)   // 试打区建立基线
+        pipeline.resetSnapshot(source: .external)       // 轮询异步触发的外部域 reset
+        pipeline.ingest(text: "咖啡", source: .testField)
+        XCTAssertEqual(results.first?.word, "咖啡")
+    }
+
+    func testExternalAndTestSourcesDoNotInterfere() {
+        let (pipeline, _) = makePipeline()
+        var results: [LookupResult] = []
+        pipeline.onLookup = { results.append($0) }
+
+        pipeline.ingest(text: "咖啡", source: .external)   // 外部域首帧记录
+        pipeline.prime(text: "", source: .testField)       // 试打区基线
+        pipeline.ingest(text: "天气", source: .testField)  // 应与空基线 diff，而非与"咖啡"
+        XCTAssertEqual(results.map(\.word), ["天气"])
+    }
 }

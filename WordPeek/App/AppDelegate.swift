@@ -30,12 +30,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else if CommandLine.arguments.contains("--show-settings") {
             settingsWindow.show()
         }
+
+        // 诊断模式：自动模拟一次试打区输入，验证「管线 → 浮窗」全链路后退出
+        if CommandLine.arguments.contains("--self-test") {
+            runSelfTest()
+        }
     }
 
     /// 重复打开应用（Finder 双击 / open）时唤出设置窗口
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         settingsWindow.show()
         return true
+    }
+
+    /// 自动诊断：模拟试打区完整输入序列并输出关键状态
+    private func runSelfTest() {
+        wpLog("self-test begin")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self else { return }
+            let env = self.environment!
+            wpLog("dict count=\(env.store.count) full=\(env.store.isUsingFullDictionary)")
+            wpLog("lookup(咖啡)=\(env.store.lookup("咖啡")?.displayEnglish ?? "nil")")
+            env.primeTestField("")
+            env.ingestTestText("咖啡")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                wpLog("overlay state: \(env.overlay.debugState)")
+                wpLog("self-test done")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    NSApp.terminate(nil)
+                }
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

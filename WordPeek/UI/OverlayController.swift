@@ -19,6 +19,12 @@ final class OverlayController {
     /// 浮窗停留时长（秒），由设置驱动
     var displayDuration: TimeInterval = 2.5
 
+    /// 调试状态（仅用于诊断日志 / self-test）
+    var debugState: String {
+        guard let panel else { return "panel=nil" }
+        return "visible=\(panel.isVisible) frame=\(panel.frame) alpha=\(panel.alphaValue)"
+    }
+
     private var panel: OverlayPanel?
     private var hostingView: NSHostingView<OverlayView>?
     private var hideWorkItem: DispatchWorkItem?
@@ -35,7 +41,9 @@ final class OverlayController {
         hostingView.layoutSubtreeIfNeeded()
         let size = hostingView.fittingSize
         panel.setContentSize(size)
-        panel.setFrameOrigin(targetOrigin(for: size, anchor: anchor))
+        let origin = targetOrigin(for: size, anchor: anchor)
+        panel.setFrameOrigin(origin)
+        wpLog("overlay show size=\(size) origin=\(origin)")
 
         // 重置自动隐藏计时
         hideWorkItem?.cancel()

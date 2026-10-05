@@ -78,14 +78,16 @@ final class AppEnvironment: ObservableObject {
     /// 设置窗口测试框驱动（App 内演示链路，不依赖 AX 权限）
     func ingestTestText(_ text: String) {
         lastLookupSourceIsTest = true
-        pipeline.ingest(text: text)
+        wpLog("ingest testField len=\(text.count) text=\"\(text)\"")
+        pipeline.ingest(text: text, source: .testField)
     }
 
     /// 测试框聚焦 / 窗口展示时，将其当前文本设为差分基线，
     /// 避免“首次输入被当作首帧记录而不展示”。
     func primeTestField(_ text: String) {
         lastLookupSourceIsTest = true
-        pipeline.prime(text: text)
+        wpLog("prime testField text=\"\(text)\"")
+        pipeline.prime(text: text, source: .testField)
     }
 
     func refreshPermission() {
@@ -178,14 +180,16 @@ final class AppEnvironment: ObservableObject {
             self?.present(result: result)
         }
 
-        // AX 监听 → 管线
+        // AX 监听 → 管线（外部域）
         monitor.onSnapshot = { [weak self] text in
             guard let self else { return }
             self.lastLookupSourceIsTest = false
-            self.pipeline.ingest(text: text)
+            wpLog("ingest external len=\(text.count)")
+            self.pipeline.ingest(text: text, source: .external)
         }
         monitor.onFocusContextChanged = { [weak self] in
-            self?.pipeline.resetSnapshot()
+            wpLog("focus context changed → reset external")
+            self?.pipeline.resetSnapshot(source: .external)
         }
     }
 
@@ -195,12 +199,13 @@ final class AppEnvironment: ObservableObject {
             if !monitor.isRunning { monitor.start() }
         } else {
             if monitor.isRunning { monitor.stop() }
-            pipeline.resetSnapshot()
+            pipeline.resetSnapshot(source: .external)
         }
         onMonitoringStateChanged?()
     }
 
     private func present(result: LookupResult) {
+        wpLog("present word=\(result.word) en=\(result.english)")
         overlay.displayDuration = settings.overlayDuration
         let anchor: OverlayController.Anchor
         if lastLookupSourceIsTest {

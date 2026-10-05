@@ -19,6 +19,14 @@ public struct LookupResult: Equatable {
     }
 }
 
+/// 快照来源：外部应用（AX 监听）与 App 内试打区相互隔离。
+/// 两套来源由不同的异步机制驱动（0.25s 轮询 vs SwiftUI 焦点事件），
+/// 隔离可避免切换瞬间互相清空快照（如试打区基线被外部 reset 误清）。
+public enum SnapshotSource {
+    case external
+    case testField
+}
+
 /// 打字 → 查词 的核心管线。
 ///
 /// 职责：接收文本快照，差分出新插入的中文片段，切词并查询词典，
@@ -45,8 +53,13 @@ public final class LookupPipeline {
     private let store: DictionaryStore
     private let now: () -> Date
 
-    private var lastText = ""
-    private var hasSnapshot = false
+    private struct SnapshotState {
+        var text = ""
+        var hasSnapshot = false
+    }
+
+    private var externalSnapshot = SnapshotState()
+    private var testFieldSnapshot = SnapshotState()
     private var lastShown: [String: Date] = [:]
 
     /// - Parameter now: 当前时间提供者（测试可注入）
@@ -55,31 +68,50 @@ public final class LookupPipeline {
         self.now = now
     }
 
-    /// 重置快照：切换输入焦点 / 暂停监听时调用。
+    /// 重置快照：切换输入焦点 / 暂停监听时调用（默认外部域）。
     /// 下一次 ingest 只记录快照，不产出结果（避免跨输入框误报）。
-    public func resetSnapshot() {
-        lastText = ""
-        hasSnapshot = false
+    public func resetSnapshot(source: SnapshotSource = .external) {
+        setSnapshot(SnapshotState(), for: source)
     }
 
     /// 直接设置快照基线（不触发查询）。
     /// 用于设置窗口测试框：聚焦时先把当前文本设为基线，之后的输入即可正常差分。
-    public func prime(text: String) {
-        lastText = text
-        hasSnapshot = true
+    public func prime(text: String, source: SnapshotSource = .external) {
+        setSnapshot(SnapshotState(text: text, hasSnapshot: true), for: source)
     }
 
     /// 送入一次文本快照（来自 AX 监听或 App 内测试框）
-    public func ingest(text: String) {
-        defer { lastText = text }
-        guard hasSnapshot else {
-            hasSnapshot = true
+    public func ingest(text: String, source: SnapshotSource = .external) {
+        var snapshot = snapshot(for: source)
+        defer { setSnapshot(snapshot, for: source) }
+
+        guard snapshot.hasSnapshot else {
+            snapshot.hasSnapshot = true
+            snapshot.text = text
             return
         }
-        guard let insertion = TextDiffEngine.extractInsertion(oldText: lastText, newText: text) else {
+        let previous = snapshot.text
+        snapshot.text = text
+        guard let insertion = TextDiffEngine.extractInsertion(oldText: previous, newText: text) else {
             return
         }
         handle(insertion: insertion)
+    }
+
+    // MARK: - 快照存取
+
+    private func setSnapshot(_ state: SnapshotState, for source: SnapshotSource) {
+        switch source {
+        case .external: externalSnapshot = state
+        case .testField: testFieldSnapshot = state
+        }
+    }
+
+    private func snapshot(for source: SnapshotSource) -> SnapshotState {
+        switch source {
+        case .external: return externalSnapshot
+        case .testField: return testFieldSnapshot
+        }
     }
 
     // MARK: - 内部处理
