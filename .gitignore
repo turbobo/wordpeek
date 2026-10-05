@@ -1,0 +1,9 @@
+# 构建产物
+build/
+dist/
+WordPeek.xcodeproj/
+xcuserdata/
+*.xcuserstate
+
+# 系统
+.DS_Store
