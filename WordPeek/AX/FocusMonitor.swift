@@ -16,6 +16,11 @@ final class FocusMonitor {
     /// 当前焦点元素（浮窗定位用；可能为 nil）
     private(set) var currentElement: AXUIElement?
 
+    /// 最近一次轮询结论（供设置窗口诊断展示 / 诊断日志）
+    private(set) var lastVerdict: String = "未启动" {
+        didSet { if lastVerdict != oldValue { wpLog("poll \(lastVerdict)") } }
+    }
+
     private var timer: Timer?
     private var lastElement: AXUIElement?
     private var lastValue: String?
@@ -34,6 +39,7 @@ final class FocusMonitor {
         }
         RunLoop.main.add(timer, forMode: .common)
         self.timer = timer
+        wpLog("monitor start (own pid=\(ownPID))")
     }
 
     func stop() {
@@ -42,17 +48,30 @@ final class FocusMonitor {
         lastElement = nil
         lastValue = nil
         currentElement = nil
+        lastVerdict = "已停止（暂停监听或未授权）"
+        wpLog("monitor stop")
     }
 
     // MARK: - 轮询
 
     private func poll() {
-        guard AXIsProcessTrusted() else { return }
+        guard AXIsProcessTrusted() else {
+            lastVerdict = "AX 未授权：辅助功能权限缺失（或被 ad-hoc 重签名后失效）"
+            return
+        }
 
-        guard let element = AXHelpers.focusedElement(),
-              let pid = AXHelpers.pid(of: element),
-              pid != ownPID else {
-            // 无焦点 / 焦点在本进程（设置窗口测试框自行驱动管线）
+        guard let element = AXHelpers.focusedElement() else {
+            lastVerdict = "取不到系统焦点元素（focusedElement = nil）"
+            handleContextChange(to: nil)
+            return
+        }
+        guard let pid = AXHelpers.pid(of: element) else {
+            lastVerdict = "读不到焦点元素所属 pid"
+            handleContextChange(to: nil)
+            return
+        }
+        guard pid != ownPID else {
+            lastVerdict = "焦点在本进程（设置窗口试打区，由 onChange 驱动）"
             handleContextChange(to: nil)
             return
         }
@@ -61,13 +80,20 @@ final class FocusMonitor {
         let isAcceptedRole = role.map { Self.acceptedRoles.contains($0) } ?? false
         let isEditable = AXHelpers.boolAttribute(element, "AXEditable") ?? false
         guard isAcceptedRole || isEditable else {
+            lastVerdict = "焦点元素非文本输入类，忽略 pid=\(pid) role=\(role ?? "nil") editable=\(isEditable)"
             handleContextChange(to: nil)
             return
         }
 
+        let elementSwitched = !AXHelpers.isSame(lastElement, element)
         handleContextChange(to: element)
 
-        guard let value = AXHelpers.stringAttribute(element, kAXValueAttribute as String) else { return }
+        guard let value = AXHelpers.stringAttribute(element, kAXValueAttribute as String) else {
+            lastVerdict = "读不到 AXValue pid=\(pid) role=\(role ?? "nil")"
+            return
+        }
+
+        lastVerdict = "监听中 pid=\(pid) role=\(role ?? "nil") len=\(value.count) 元素切换=\(elementSwitched ? "是" : "否")"
         guard value != lastValue else { return }
         lastValue = value
         onSnapshot?(value)
@@ -82,6 +108,7 @@ final class FocusMonitor {
             changed = lastElement != nil
         }
         guard changed else { return }
+        if element != nil { wpLog("focus context changed → 重置外部域快照基线") }
         lastElement = element
         lastValue = nil
         currentElement = element

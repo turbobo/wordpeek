@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: SettingsWindowController!
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        wpDebugLogReset()
         let environment = AppEnvironment()
         self.environment = environment
 
@@ -37,6 +38,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             settingsWindow.show()
         } else if CommandLine.arguments.contains("--show-settings") {
             settingsWindow.show()
+        } else if !environment.permissionGranted {
+            // 老用户重新构建后 TCC 授权会失效（ad-hoc 签名换指纹）。
+            // 此时若不提示，表现就是「打字没反应」，因此每次启动未完成授权都唤出引导。
+            wpLog("ungranted at launch → show settings for guidance")
+            settingsWindow.show()
         }
 
         // 诊断模式：自动模拟一次试打区输入，验证「管线 → 浮窗」全链路后退出
@@ -58,19 +64,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// 自动诊断：模拟试打区完整输入序列并输出关键状态
+    /// 自动诊断：输出全链路状态摘要 + 模拟试打区完整输入序列，验证后退出
     private func runSelfTest() {
         wpLog("self-test begin")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
             guard let self else { return }
             let env = self.environment!
-            wpLog("dict count=\(env.store.count) full=\(env.store.isUsingFullDictionary)")
-            wpLog("lookup(咖啡)=\(env.store.lookup("咖啡")?.displayEnglish ?? "nil")")
-            env.primeTestField("")
-            env.ingestTestText("kafei")  // 模拟输入法拼音预编辑（ASCII，较长）
-            env.ingestTestText("咖啡")    // 模拟上屏（汉字，较短）
+            env.dumpDiagnostics()
+            env.smokeTestPipeline()
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                wpLog("overlay state: \(env.overlay.debugState)")
+                wpLog("overlay after smoke test: \(env.overlay.debugState)")
+                env.dumpDiagnostics()
                 wpLog("self-test done")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     NSApp.terminate(nil)

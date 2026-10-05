@@ -20,6 +20,8 @@ final class AppEnvironment: ObservableObject {
 
     /// AX 辅助功能权限状态
     @Published private(set) var permissionGranted = false
+    /// 最近一次 AX 轮询诊断结论（设置窗口展示，定位「打字不弹」用）
+    @Published private(set) var monitorVerdict = "未启动"
     /// 词典状态文案
     @Published private(set) var dictionaryInfo = "加载中…"
     /// 下载 / 导入进行中
@@ -46,6 +48,8 @@ final class AppEnvironment: ObservableObject {
 
     /// 启动：加载词典、开始权限轮询与监听
     func start() {
+        wpDebugLogReset()
+        wpLog("app start trusted=\(AXIsProcessTrusted()) monitoring=\(settings.isMonitoringEnabled)")
         store.load(entries: BuiltinDictionary.entries(), isFullDictionary: false)
         updateDictionaryInfo()
 
@@ -90,11 +94,44 @@ final class AppEnvironment: ObservableObject {
         pipeline.prime(text: text, source: .testField)
     }
 
+    /// 输出全链路状态摘要到诊断日志（菜单栏「自检」、`--self-test` / `--doctor` 均复用）
+    ///
+    /// 存在的意义：ad-hoc 重签名会让辅助功能授权失效，此时「打字不弹翻译」
+    /// 是权限问题而非逻辑问题；这条摘要一眼能看出断点在哪一层。
+    func dumpDiagnostics() {
+        wpLog("── 诊断摘要 ─────────────────────")
+        wpLog("辅助功能授权 = \(AXIsProcessTrusted() ? "已授权" : "未授权 ← 打字不会弹翻译")")
+        wpLog("监听开关 = \(settings.isMonitoringEnabled)，轮询运行 = \(monitor.isRunning)")
+        wpLog("轮询结论 = \(monitor.lastVerdict)")
+        wpLog("词典 = \(store.count) 条，完整词典 = \(store.isUsingFullDictionary)")
+        wpLog("lookup(咖啡) = \(store.lookup("咖啡")?.displayEnglish ?? "nil")")
+        wpLog("浮窗 = \(overlay.debugState)")
+        wpLog("单字词展示 = \(settings.showSingleCharWords)，浮窗时长 = \(settings.overlayDuration)s")
+        wpLog("──────────────────────────────")
+    }
+
+    /// 端到端逻辑自检：喂入「拼音预编辑 → 汉字上屏」序列，验证 diff → 切词 → 查词 → 浮窗
+    func smokeTestPipeline() {
+        primeTestField("")
+        ingestTestText("kafei")   // 输入法预编辑（ASCII，较长）
+        ingestTestText("咖啡")     // 上屏（汉字，较短）
+    }
+
     func refreshPermission() {
         let granted = AXIsProcessTrusted()
+        syncVerdict()
         guard granted != permissionGranted else { return }
+        wpLog("permission changed granted=\(granted)")
         permissionGranted = granted
         applyMonitoringState()
+    }
+
+    /// 把 FocusMonitor 的最新结论同步到可观察属性（仅变化时发布，避免无谓刷新）
+    private func syncVerdict() {
+        let verdict = monitor.lastVerdict
+        guard verdict != monitorVerdict else { return }
+        wpLog("verdict -> \(verdict)")
+        monitorVerdict = verdict
     }
 
     /// 触发系统授权引导并跳转到辅助功能设置页

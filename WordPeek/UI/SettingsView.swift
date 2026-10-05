@@ -75,6 +75,18 @@ struct SettingsView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
             }
+            // 诊断：把轮询器的真实结论暴露出来，定位「打字不弹」卡在哪一步
+            HStack(alignment: .top, spacing: 6) {
+                Text("诊断")
+                    .font(.system(size: 10))
+                    .foregroundColor(.secondary)
+                Text(environment.monitorVerdict)
+                    .font(.system(size: 10, design: .monospaced))
+                    .foregroundColor(.secondary)
+                    .lineLimit(2)
+                    .textSelection(.enabled)
+                Spacer()
+            }
         }
     }
 

@@ -28,3 +28,9 @@ codesign --force --deep --sign - dist/WordPeek.app
 
 echo "✅ 构建完成: dist/WordPeek.app"
 echo "   运行:    open dist/WordPeek.app"
+echo "   诊断:    ./scripts/doctor.sh   （实时输出打字→查词→浮窗全链路日志）"
+echo
+echo "⚠️  ad-hoc 重签名会使「辅助功能」授权失效（TCC 绑定签名指纹）："
+echo "   本次构建后需在 系统设置 → 隐私与安全性 → 辅助功能 中移除「瞄词」再重新勾选，"
+echo "   否则表现为：打字后不弹翻译。可执行以下命令清掉旧记录后重开授权："
+echo "     tccutil reset Accessibility app.wordpeek.mac"
