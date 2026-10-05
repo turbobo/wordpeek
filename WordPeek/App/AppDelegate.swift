@@ -22,6 +22,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         environment.start()
         menuBar.refresh()
 
+        // 监听「第二实例请求显示设置窗口」的分布式通知（单实例守卫配合）
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(handleShowSettingsRequest),
+            name: InstanceGuard.showSettingsNotification,
+            object: nil
+        )
+
         // 首次启动展示引导（权限 + 词典 + 试打区）；
         // 带 --show-settings 参数启动时也直接唤出设置窗口
         if !environment.settings.hasLaunchedBefore {
@@ -43,6 +51,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return true
     }
 
+    /// 第二实例请求显示设置窗口
+    @objc private func handleShowSettingsRequest(_ notification: Notification) {
+        DispatchQueue.main.async { [weak self] in
+            self?.settingsWindow.show()
+        }
+    }
+
     /// 自动诊断：模拟试打区完整输入序列并输出关键状态
     private func runSelfTest() {
         wpLog("self-test begin")
@@ -52,7 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             wpLog("dict count=\(env.store.count) full=\(env.store.isUsingFullDictionary)")
             wpLog("lookup(咖啡)=\(env.store.lookup("咖啡")?.displayEnglish ?? "nil")")
             env.primeTestField("")
-            env.ingestTestText("咖啡")
+            env.ingestTestText("kafei")  // 模拟输入法拼音预编辑（ASCII，较长）
+            env.ingestTestText("咖啡")    // 模拟上屏（汉字，较短）
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
                 wpLog("overlay state: \(env.overlay.debugState)")
                 wpLog("self-test done")
